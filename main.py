@@ -26,7 +26,7 @@ def stochastic_runs(num_sims, num_periods, strike_price, mu, sigma):
             # we put some path-dependent logic in here too... something so it seems like simulating many paths is really helpful
             # something so we know there is not an easy, known, closed-form solution like Black-Scholes (note: B-S is discounted)
             # here we made a option that restores the value of the stock at the 3rd-6th anniversaries
-            if stochastic_run_idx in [36, 48, 60, 72] and stock_value < temp_run[12]:
+            if time_period in [36, 48, 60, 72] and stock_value < temp_run[12]:
                 stock_value = max(temp_run[0], temp_run[12], temp_run[24], temp_run[36], 1)
             temp_run.append(stock_value)
         payouts.append(undiscounted_payout(stock_value, strike_price))
