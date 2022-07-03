@@ -1,5 +1,6 @@
-from numpy import random
+# from numpy import random
 # import matplotlib.pyplot as plt
+import random
 import time
 # import pandas as pd
 import numpy as np
@@ -12,14 +13,30 @@ def un_discounted_payout(account_value, strike):
 
 
 def stochastic_factor(mu, sigma):
-    return math.exp(mu + sigma*random.normal())
+    return math.exp(mu + sigma*np.random.normal())
 
+
+# should add this to incorporate a changing population in
+# using policyholders makes the shortcut modeling nontrivial
+# we may be interpolating between non-symmetric points than the grid of mu-sigma-strike
+# mu-sigma-strike-policyholder_representation
+'''
+def generate_contracts(num_of_accounts):
+    block_of_options = []
+    for _ in range(num_of_accounts):
+        # the in-the-moneyness of contracts are correlated and will move with the market
+        # so should our simulation of lives take this into account?
+        # should it also be correlated with the current drift and volatility in the market?
+        account_value = math.exp(0.05 + 0.05*np.random.normal())  # uncorrelated for the moment
+        time_to_maturity = random.randint(10,30)  # years
+        block_of_options.append([account_value, time_to_maturity])
+'''
 
 def stochastic_runs(num_sims, num_periods, strike_price, mu, sigma):
     stochastic_paths_stock = []
     stochastic_paths_account = []
     payouts = []
-    option_activated = 0  # an option on the option
+    option_activated = 0  # guarantee option on the option which can happen up to 4 times at t = 3, 4, 5, 6
 
     for stochastic_run_idx in range(num_sims):
         stock_value = 1  # assume all paths start with a value of 1
@@ -38,10 +55,10 @@ def stochastic_runs(num_sims, num_periods, strike_price, mu, sigma):
             if time_period in [35, 47, 59, 71] and stock_value < 1:
                 option_activated += 1
                 account_value = min(max(1, temp_run_account[11], temp_run_account[23], temp_run_account[35]), stock_value)
-                temp_run_account.append(account_value)
             else:
                 account_value *= stochastic_mult
-                temp_run_account.append(account_value)
+
+            temp_run_account.append(account_value)
 
         payouts.append(un_discounted_payout(account_value, strike_price))
         stochastic_paths_stock.append(temp_run_stock)
@@ -53,16 +70,16 @@ def stochastic_runs(num_sims, num_periods, strike_price, mu, sigma):
     #     df = pd.DataFrame(data_matrix, columns=["run_"+str(i) for i in range(num_sims)])
 
     print(f"account value bump-up guarantee activated on average {option_activated/num_sims} times/run.")
-    return sum(payouts)/num_sims  # df, avg_payout
+    return np.round(sum(payouts)/num_sims, 2)  # df, avg_payout
 
 
 def create_training_data():
-    # hyper-parameters:
+    # hyper-parameters of stochastic model: drift, volatility, strike
     # 20 values of monthly drift; some positive bull market; some negative bear market
     mus = np.round(np.arange(-0.01, 0.01, 0.001), 3)
-    # 10 values for volatility magnitude; 0 is deterministic; rest add noise
+    # 10 values for volatility magnitude; 0 is deterministic; rest add noise to stock return
     sigmas = np.round(np.arange(0, 0.1, 0.01), 2)
-    # 10 strike price levels; 0 is "in the money"; rest are "out of the money"
+    # 10 strike price levels; 0 is "in the money" at t=0; the rest are "out of the money" at t=0
     strike_prices = np.arange(0, 100, 10)
 
     training_data = []
@@ -77,7 +94,7 @@ def create_training_data():
                 end = time.time()
                 print("mu, sigma, strike:", mu, sigma, strike)
                 print("estimated, un-discounted, account/option payoff at expiration:", avg)
-                print("10,000-path, 30-year, monthly, stochastic projection time:", end-start)
+                print("10,000-path, 30-year, monthly, stochastic projection time (seconds):", end-start)
                 print()
                 training_data.append([mu, sigma, strike, avg])
 
