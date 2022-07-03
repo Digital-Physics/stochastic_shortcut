@@ -7,8 +7,8 @@ import math
 import csv
 
 
-def undiscounted_payout(price, strike):
-    return max(price-strike, 0)
+def un_discounted_payout(account_value, strike):
+    return max(account_value-strike, 0)
 
 
 def stochastic_factor(mu, sigma):
@@ -16,38 +16,53 @@ def stochastic_factor(mu, sigma):
 
 
 def stochastic_runs(num_sims, num_periods, strike_price, mu, sigma):
-    stochastic_paths = []
+    stochastic_paths_stock = []
+    stochastic_paths_account = []
     payouts = []
+    option_activated = 0  # an option on the option
+
     for stochastic_run_idx in range(num_sims):
         stock_value = 1  # assume all paths start with a value of 1
-        temp_run = [stock_value]
+        account_value = 1
+        temp_run_stock = [stock_value]
+        temp_run_account = [account_value]
         for time_period in range(num_periods-1):
-            stock_value *= stochastic_factor(mu, sigma)
-            # we put some path-dependent logic in here too... something so it seems like simulating many paths is really helpful
-            # something so we know there is not an easy, known, closed-form solution like Black-Scholes (note: B-S is discounted)
-            # here we made a option that restores the value of the stock at the 3rd-6th anniversaries
-            if time_period in [36, 48, 60, 72] and stock_value < temp_run[12]:
-                stock_value = max(temp_run[0], temp_run[12], temp_run[24], temp_run[36], 1)
-            temp_run.append(stock_value)
-        payouts.append(undiscounted_payout(stock_value, strike_price))
-        # compute average without doing a sum over a list of values at the end
-        # if stochastic_run_idx > 0:
-        #     avg_payout = avg_payout + (undiscounted_payout(stock_value, strike_price) - avg_payout)/(stochastic_run_idx+1)
-        # else:
-        #     avg_payout = undiscounted_payout(stock_value, strike_price)
-        stochastic_paths.append(temp_run)
+            stochastic_mult = stochastic_factor(mu, sigma)
+            stock_value *= stochastic_mult
+            temp_run_stock.append(stock_value)
+
+            # we put some path-dependent, exotic options in here so simulating many paths is actually helpful
+            # ...so no easy, known, closed-form solution like Black-Scholes (note: B-S is discounted)
+            # here we made a guarantee on an underlying "account value"
+            # this is an embedded option on the contract which is a call option itself
+            if time_period in [35, 47, 59, 71] and stock_value < 1:
+                option_activated += 1
+                account_value = min(max(1, temp_run_account[11], temp_run_account[23], temp_run_account[35]), stock_value)
+                temp_run_account.append(account_value)
+            else:
+                account_value *= stochastic_mult
+                temp_run_account.append(account_value)
+
+        payouts.append(un_discounted_payout(account_value, strike_price))
+        stochastic_paths_stock.append(temp_run_stock)
+        stochastic_paths_account.append(temp_run_account)
 
     # data_matrix = np.zeros((num_periods, num_sims))
     # for column in range(num_sims):
     #     data_matrix[:, column] = stochastic_paths[column]
     #     df = pd.DataFrame(data_matrix, columns=["run_"+str(i) for i in range(num_sims)])
 
+    print(f"account value bump-up guarantee activated on average {option_activated/num_sims} times/run.")
     return sum(payouts)/num_sims  # df, avg_payout
 
 
 def create_training_data():
-    mus = np.arange(0, 0.01, 0.0005)  # monthly
-    sigmas = np.arange(0, 0.07, 0.01)
+    # hyper-parameters:
+    # 20 values of monthly drift; some positive bull market; some negative bear market
+    mus = np.arange(-0.01, 0.01, 0.001)
+    # 10 values for volatility magnitude; 0 is deterministic; rest add noise
+    sigmas = np.arange(0, 0.1, 0.01)
+    # 10 strike price levels; 0 is "in the money"; rest are "out of the money"
     strike_prices = np.arange(0, 100, 10)
 
     training_data = []
@@ -60,25 +75,25 @@ def create_training_data():
                 # but if it isn't biased it may still offer a good enough "ground truth"
                 avg = stochastic_runs(10000, 30*12, strike, mu, sigma)
                 end = time.time()
+                print("mu, sigma, strike:", mu, sigma, strike)
+                print("estimated, un-discounted, account/option payoff at expiration:", avg)
+                print("10,000-path, 30-year, monthly, stochastic projection time:", end-start)
                 print()
-                print("elapsed time:", end-start)
-                print("mu, sigma, strike", mu, sigma, strike)
-                print("estimated undiscounted option value", avg)
-                training_data.append([strike, mu, sigma, avg])
+                training_data.append([mu, sigma, strike, avg])
 
     return training_data
 
 
 def list_to_csv(lists, headers):
-    with open("stochastic_training_data.csv", "w", newline="") as csvfile:
-        writer = csv.writer(csvfile)
+    with open("stochastic_training_data.csv", "w", newline="") as csv_file:
+        writer = csv.writer(csv_file)
         writer.writerow(headers)
         writer.writerows(lists)
-        print("stochastic_training_data.csv file written")
+        print("stochastic_training_data.csv file written!")
 
 
 training_data_results = create_training_data()
-list_to_csv(training_data_results, ["strike", "mu", "sigma", "avg"])
+list_to_csv(training_data_results, ["mu", "sigma", "strike", "avg"])
 
 # plt.plot([i for i in range(30*12)], df)
 # plt.show()
