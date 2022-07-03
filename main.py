@@ -59,9 +59,9 @@ def stochastic_runs(num_sims, num_periods, strike_price, mu, sigma):
 def create_training_data():
     # hyper-parameters:
     # 20 values of monthly drift; some positive bull market; some negative bear market
-    mus = np.arange(-0.01, 0.01, 0.001)
+    mus = np.round(np.arange(-0.01, 0.01, 0.001), 3)
     # 10 values for volatility magnitude; 0 is deterministic; rest add noise
-    sigmas = np.arange(0, 0.1, 0.01)
+    sigmas = np.round(np.arange(0, 0.1, 0.01), 2)
     # 10 strike price levels; 0 is "in the money"; rest are "out of the money"
     strike_prices = np.arange(0, 100, 10)
 
