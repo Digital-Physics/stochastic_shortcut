@@ -1,102 +1,113 @@
-# from numpy import random
-# import matplotlib.pyplot as plt
 import random
 import time
-# import pandas as pd
 import numpy as np
 import math
 import csv
+# import pandas as pd
+# import matplotlib.pyplot as plt
 
 
-def un_discounted_payout(account_value, strike):
-    return max(account_value-strike, 0)
+# we will do Guaranteed Minimum Account Balance style contract
+# this GMAB can be looked at as a put option
+# we will value the embedded put option on a variety of policies with in a variety of economic scenarios
+def un_discounted_payout(account_value, stock_value):
+    return max(account_value-stock_value, 0)
 
 
 def stochastic_factor(mu, sigma):
     return math.exp(mu + sigma*np.random.normal())
 
 
-# should add this to incorporate a changing population in
-# using policyholders makes the shortcut modeling nontrivial
-# we may be interpolating between non-symmetric points than the grid of mu-sigma-strike
-# mu-sigma-strike-policyholder_representation
-'''
+# using policyholders makes the shortcut model nontrivial; we can't do a high-dimensional lattice of all possible inputs and interpolate
+# curse of dimensionality: our proxy data science model may need to interpolate between sparse, non-symmetric training model points
+# if we just had mu-sigma-strike, create lattice of training data & interpolate between 8 neighbors' Y in 3-d lattice
 def generate_contracts(num_of_accounts):
-    block_of_options = []
-    for _ in range(num_of_accounts):
-        # the in-the-moneyness of contracts are correlated and will move with the market
-        # so should our simulation of lives take this into account?
-        # should it also be correlated with the current drift and volatility in the market?
-        account_value = math.exp(0.05 + 0.05*np.random.normal())  # uncorrelated for the moment
-        time_to_maturity = random.randint(10,30)  # years
-        block_of_options.append([account_value, time_to_maturity])
-'''
+    block_of_contracts = []
+    for contract_num in range(num_of_accounts):
+        # Note: our model will not leverage the previous valuations period's known valuation for a given policy, which could be beneficial
+        # Note: this is not a risk-neutral model approach to option valuation
 
-def stochastic_runs(num_sims, num_periods, strike_price, mu, sigma):
+        # this can range from 0 to infinity
+        account_to_stock_ratio = np.round(math.exp(0.05 + 0.2*np.random.normal()), 4)
+        # years to maturity; account balance guarantee date; option date
+        time_to_maturity = random.randint(1, 20)
+        # this is the monthly roll-up rate on the account value
+        crediting_rate = random.choice([0.003, 0.005, 0.007, 0.009])
+        # monthly discount_rate
+        discount_rate = random.choice([0.002, 0.004, 0.006, 0.008, 0.01])
+
+        block_of_contracts.append([contract_num, account_to_stock_ratio, time_to_maturity, crediting_rate, discount_rate])
+
+    return block_of_contracts
+
+
+def stochastic_runs(num_sims, mu, sigma, account_to_stock_ratio, time_to_maturity, crediting_rate, discount_rate):
     stochastic_paths_stock = []
     stochastic_paths_account = []
     payouts = []
-    option_activated = 0  # guarantee option on the option which can happen up to 4 times at t = 3, 4, 5, 6
+    num_periods = 12*time_to_maturity
 
     for stochastic_run_idx in range(num_sims):
         stock_value = 1  # assume all paths start with a value of 1
-        account_value = 1
         temp_run_stock = [stock_value]
+        account_value = account_to_stock_ratio  # this ratio will change during the projection so we change the variable name
         temp_run_account = [account_value]
+
         for time_period in range(num_periods-1):
             stochastic_mult = stochastic_factor(mu, sigma)
             stock_value *= stochastic_mult
             temp_run_stock.append(stock_value)
 
-            # we put some path-dependent, exotic options in here so simulating many paths is actually helpful
-            # ...so no easy, known, closed-form solution like Black-Scholes (note: B-S is discounted)
-            # here we made a guarantee on an underlying "account value"
-            # this is an embedded option on the contract which is a call option itself
-            if time_period in [35, 47, 59, 71] and stock_value < 1:
-                option_activated += 1
-                account_value = min(max(1, temp_run_account[11], temp_run_account[23], temp_run_account[35]), stock_value)
-            else:
-                account_value *= stochastic_mult
-
+            account_value *= math.exp(crediting_rate)
             temp_run_account.append(account_value)
 
-        payouts.append(un_discounted_payout(account_value, strike_price))
+        payouts.append(un_discounted_payout(account_value, stock_value))
         stochastic_paths_stock.append(temp_run_stock)
         stochastic_paths_account.append(temp_run_account)
 
-    # data_matrix = np.zeros((num_periods, num_sims))
-    # for column in range(num_sims):
-    #     data_matrix[:, column] = stochastic_paths[column]
-    #     df = pd.DataFrame(data_matrix, columns=["run_"+str(i) for i in range(num_sims)])
+    undiscounted_option_value = sum(payouts)/num_sims
+    discount_factor = 1/math.exp(discount_rate*num_periods)
+    option_val = undiscounted_option_value*discount_factor
+    print("un-discounted option payout value:", undiscounted_option_value)
+    print("discount factor", discount_factor)
+    print("time 0 option val", option_val)
 
-    print(f"account value bump-up guarantee activated on average {option_activated/num_sims} times/run.")
-    return np.round(sum(payouts)/num_sims, 2)  # df, avg_payout
+    return np.round(option_val, 4)  # df
 
 
-def create_training_data():
+# could look at Sobol sequences for generating data in a way that nicely fills in the gaps in the high dimensional space
+def create_training_data(block_of_contracts):
     # hyper-parameters of stochastic model: drift, volatility, strike
-    # 20 values of monthly drift; some positive bull market; some negative bear market
-    mus = np.round(np.arange(-0.01, 0.01, 0.001), 3)
-    # 10 values for volatility magnitude; 0 is deterministic; rest add noise to stock return
-    sigmas = np.round(np.arange(0, 0.1, 0.01), 2)
-    # 10 strike price levels; 0 is "in the money" at t=0; the rest are "out of the money" at t=0
-    strike_prices = np.arange(0, 100, 10)
+    # 10 values of monthly drift; some positive bull market; some negative bear market
+    mus = np.round(np.arange(-0.01, 0.01, 0.002), 3)
+    # 5 values for volatility magnitude; 0 is deterministic; rest add noise to stock return
+    sigmas = np.round(np.arange(0, 0.1, 0.02), 2)
 
     training_data = []
 
-    for mu in reversed(mus):
-        for sigma in sigmas:
-            for strike in strike_prices:
+    for policy_details in block_of_contracts:
+        # stock market is defined by an average period drift mu of one stock, and a volatility parameterized by sigma
+        for mu in mus:
+            for sigma in reversed(sigmas):
+                contract_num, account_to_stock_ratio, time_to_maturity, crediting_rate, discount_rate = policy_details
                 start = time.time()
                 # 10000 runs is not enough time for this to converge to the right answer
                 # but if it isn't biased it may still offer a good enough "ground truth"
-                avg = stochastic_runs(10000, 30*12, strike, mu, sigma)
+                option_value = stochastic_runs(10000, mu, sigma, account_to_stock_ratio, time_to_maturity, crediting_rate, discount_rate)
                 end = time.time()
-                print("mu, sigma, strike:", mu, sigma, strike)
-                print("estimated, un-discounted, account/option payoff at expiration:", avg)
-                print("10,000-path, 30-year, monthly, stochastic projection time (seconds):", end-start)
+                print("contract_num, account_to_stock_ratio, time_to_mat, crediting_rate, discount_rate, mu, sigma:")
+                print(contract_num, account_to_stock_ratio, time_to_maturity, crediting_rate, discount_rate, mu, sigma)
+                print("estimated option value:", option_value)
+                print(f"10,000-path, {time_to_maturity}-year, monthly, stochastic projection time (seconds): {end-start}")
                 print()
-                training_data.append([mu, sigma, strike, avg])
+                training_data.append([contract_num,
+                                      account_to_stock_ratio,
+                                      time_to_maturity,
+                                      crediting_rate,
+                                      discount_rate,
+                                      mu,
+                                      sigma,
+                                      option_value])
 
     return training_data
 
@@ -109,14 +120,30 @@ def list_to_csv(lists, headers):
         print("stochastic_training_data.csv file written!")
 
 
-training_data_results = create_training_data()
-list_to_csv(training_data_results, ["mu", "sigma", "strike", "avg"])
+num_of_contracts = 2
+policies = generate_contracts(num_of_contracts)
+global_start = time.time()
+training_data_results = create_training_data(policies)
+list_to_csv(training_data_results, ["contract_num",
+                                    "starting_account_to_stock_ratio",
+                                    "years_to_maturity",
+                                    "monthly_account_crediting_rate",
+                                    "monthly_valuation_discount_rate",
+                                    "mu_stock_drift",
+                                    "sigma_stock_vol",
+                                    "option_value_time_0"])
+global_end = time.time()
+
+print(f"run time for {num_of_contracts} contracts in 50 different stock market environments(minutes): {(global_end-global_start)/60}")
 
 # plt.plot([i for i in range(30*12)], df)
 # plt.show()
 
-# below we will import the csv of training data and try to fit a model that estimates the option value
-# we will then analyze how accurate the model is (compared to our noisy, not-fully-converged "ground truth")
-# we will also compare how long the full stochastic model takes to run vs a forward pass on the fitted model
+# below we will import the csv of training data,
+# split it in to training-val-test sets
+# normalize and transform the fields using x/(x_max - x_min) or something like that
+# and try to fit a model that estimates the option value
 #
+# we will then analyze how accurate the model is compared to the theoretically computed stochastic valuation
+# we will also compare how long the full stochastic model takes to run vs a forward pass on the fitted model
 
