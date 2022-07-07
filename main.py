@@ -3,13 +3,19 @@ import time
 import numpy as np
 import math
 import csv
-# import pandas as pd
-# import matplotlib.pyplot as plt
+import pandas as pd
+from sklearn.model_selection import train_test_split, cross_val_score
+from sklearn.metrics import mean_squared_error
+import matplotlib.pyplot as plt
+from xgboost import XGBRegressor
+
+# if you already have a .csv of training data and want to skip the stochastic runs and jump to the ML fitting step set...
+# generate_data_flag = False
+generate_data_flag = True
 
 
-# we will do Guaranteed Minimum Account Balance style contract
+# we will model a Guaranteed Minimum Accumulation Benefit type of contract
 # this GMAB can be looked at as a put option
-# we will value the embedded put option on a variety of policies with in a variety of economic scenarios
 def un_discounted_payout(account_value, stock_value):
     return max(account_value-stock_value, 0)
 
@@ -17,10 +23,16 @@ def un_discounted_payout(account_value, stock_value):
 def stochastic_factor(mu, sigma):
     return math.exp(mu + sigma*np.random.normal())
 
-
-# using policyholders makes the shortcut model nontrivial; we can't do a high-dimensional lattice of all possible inputs and interpolate
-# curse of dimensionality: our proxy data science model may need to interpolate between sparse, non-symmetric training model points
+# side thoughts:
+# using policyholders makes the shortcut model nontrivial;
+# we can't do a high-dimensional lattice of all possible inputs and interpolate... or can we?
+# curse of dimensionality? it may not hit this model yet, especially since we are generating the data we want
+# will our proxy data science model need to interpolate between sparse, non-symmetric training model points?
 # if we just had mu-sigma-strike, create lattice of training data & interpolate between 8 neighbors' Y in 3-d lattice
+# how would you locate near points in general, when not in a lattice? Dot product or cosine similarity ranking?
+
+
+# generate some fake policy parameters for our model inputs
 def generate_contracts(num_of_accounts=100):
     block_of_contracts = []
     for contract_num in range(num_of_accounts):
@@ -38,7 +50,7 @@ def generate_contracts(num_of_accounts=100):
 
         block_of_contracts.append([contract_num, account_to_stock_ratio, time_to_maturity, crediting_rate, discount_rate])
 
-    return block_of_contracts, num_of_accounts
+    return block_of_contracts
 
 
 def stochastic_runs(num_sims, mu, sigma, account_to_stock_ratio, time_to_maturity, crediting_rate, discount_rate):
@@ -77,21 +89,21 @@ def stochastic_runs(num_sims, mu, sigma, account_to_stock_ratio, time_to_maturit
     return np.round(option_val, 4)  # df
 
 
-# could look at Sobol sequences for generating data in a way that nicely fills in the gaps in the high dimensional space
+# thought: should we look at Sobol sequences for generating data in a way that nicely fills in the gaps in the high dimensional space?
 def create_training_data(block_of_contracts):
-    # hyper-parameters of stochastic model: drift, volatility, strike
-    # 10 values of monthly drift; some positive bull market; some negative bear market
+    # stochastic stock parameters: drift mu and volatility sigma
+    # 10 values of monthly drift; some represent positive bull markets; some negative represent negative bear markets
     mus = np.round(np.arange(-0.01, 0.01, 0.002), 3)
     # 5 values for volatility magnitude; 0 is deterministic; rest add noise to stock return
     sigmas = np.round(np.arange(0, 0.1, 0.02), 2)
 
     training_data = []
 
-    for policy_details in block_of_contracts:
+    for policy_params in block_of_contracts:
         # stock market is defined by an average period drift mu of one stock, and a volatility parameterized by sigma
         for mu in mus:
             for sigma in reversed(sigmas):
-                contract_num, account_to_stock_ratio, time_to_maturity, crediting_rate, discount_rate = policy_details
+                contract_num, account_to_stock_ratio, time_to_maturity, crediting_rate, discount_rate = policy_params
                 start = time.time()
                 # 10000 runs is not enough time for this to converge to the right answer
                 # but if it isn't biased it may still offer a good enough "ground truth"
@@ -122,29 +134,91 @@ def list_to_csv(lists, headers):
         print("stochastic_training_data.csv file written!")
 
 
-policy_details, num_of_contracts = generate_contracts()
-global_start = time.time()
-training_data_results = create_training_data(policy_details)
-list_to_csv(training_data_results, ["contract_num",
-                                    "starting_account_to_stock_ratio",
-                                    "years_to_maturity",
-                                    "monthly_account_crediting_rate",
-                                    "monthly_valuation_discount_rate",
-                                    "mu_stock_drift",
-                                    "sigma_stock_vol",
-                                    "option_value_time_0"])
-global_end = time.time()
+if generate_data_flag:
+    policy_details = generate_contracts()
+    global_start = time.time()
+    training_data_results = create_training_data(policy_details)
+    list_to_csv(training_data_results, ["contract_num",
+                                        "starting_account_to_stock_ratio",
+                                        "years_to_maturity",
+                                        "monthly_account_crediting_rate",
+                                        "monthly_valuation_discount_rate",
+                                        "mu_stock_drift",
+                                        "sigma_stock_vol",
+                                        "option_value_time_0"])
+    global_end = time.time()
 
-print(f"run time for {num_of_contracts} contracts in 50 different stock market environments(minutes): {(global_end-global_start)/60}")
+    print(f"run time: {len(policy_details)} option contracts, 50 different stock environments(minutes):{(global_end-global_start)/60}")
 
-# plt.plot([i for i in range(30*12)], df)
-# plt.show()
+# Machine Learning model below
+df = pd.read_csv("stochastic_training_data.csv")
+pd.set_option("display.max_columns", None)
+print(df.head())
+print("shape:", df.shape)
+print("count of missing values by column:")
+print(df.isnull().sum())
+print("statistics by column:")
+print(df.describe())
+print("data types by column, memory used, and other info:")
+print(df.info())
 
-# below we will import the csv of training data,
-# split it in to training-val-test sets
-# normalize and transform the fields using x/(x_max - x_min) or something like that
-# and try to fit a model that estimates the option value
-#
-# we will then analyze how accurate the model is compared to the theoretically computed stochastic valuation
-# we will also compare how long the full stochastic model takes to run vs a forward pass on the fitted model
+# data prep for model
+df.drop('contract_num', axis=1, inplace=True)
+
+# split data into X, our model inputs, and Y, our target variable
+X = df.iloc[:, :-1]
+y = df.iloc[:, -1]
+
+# split data into training and test
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+xgbr = XGBRegressor()  # verbosity=0, silent=True)
+print("XGBoost Regression model details:")
+print(xgbr)
+
+# we don't do any data clean-up or normalization, but it didn't seem to affect the results
+print("fit model...")
+xgbr.fit(X_train, y_train)
+score = xgbr.score(X_train, y_train)
+print("Training score", score)
+
+# cross validation training should fit as well
+cv_scores = cross_val_score(xgbr, X_train, y_train, cv=10)
+print("C-V scores:", cv_scores)
+print("Cross-validation score:", cv_scores.mean())
+
+# predict results
+ml_start = time.time()
+y_pred = xgbr.predict(X_test)
+ml_end = time.time()
+print("stochastic shortcut stat for comparison to full-blown stochastic model:")
+print(f"run time: {len(X_test)} option contracts, one stock market mu and sigma per contract (seconds): {(ml_end-ml_start)}")
+print("the average time to do a 10,000 path stochastic run valuation on one contract was several seconds")
+
+if generate_data_flag:
+    stochastic_time = (global_end-global_start)/len(policy_details)/50  # each policy has 50 (mu, sigma) stochastic run pairs
+    xgboost_time = (ml_end-ml_start)/len(X_test)
+    speed_up_factor = stochastic_time/xgboost_time
+
+    print(f"A trained XGBoost model predicts {speed_up_factor} times faster than the stochastic model!")
+
+# get some metrics
+print("accuracy metrics on XGBoost Regression model:")
+mse = mean_squared_error(y_test, y_pred)
+print("MSE: %0.2f" % mse)
+print("RMSE: %0.2f" % (mse**(1/2)))
+
+# compare the models
+print("test set: prediction vs estimated ground truth:")
+df2 = pd.DataFrame({"prediction": y_pred, "estimated ground truth": y_test})
+df2['error percentage (on Estimated stochastic ground truth)'] = df2["prediction"]/df2["estimated ground truth"]-1
+print(df2)
+
+# visualize predictions
+x_axis = range(len(y_test))
+plt.plot(x_axis, y_pred, label="ML model prediction")
+plt.plot(x_axis, y_test, label="Estimated ground truth")
+plt.title("Stochastic Shortcut Accuracy Comparison")
+plt.legend()
+plt.show()
 
