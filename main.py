@@ -38,7 +38,7 @@ def generate_contracts(num_of_accounts=100):
 
         block_of_contracts.append([contract_num, account_to_stock_ratio, time_to_maturity, crediting_rate, discount_rate])
 
-    return block_of_contracts
+    return block_of_contracts, num_of_accounts
 
 
 def stochastic_runs(num_sims, mu, sigma, account_to_stock_ratio, time_to_maturity, crediting_rate, discount_rate):
@@ -122,9 +122,9 @@ def list_to_csv(lists, headers):
         print("stochastic_training_data.csv file written!")
 
 
-policies = generate_contracts()
+policy_details, num_of_contracts = generate_contracts()
 global_start = time.time()
-training_data_results = create_training_data(policies)
+training_data_results = create_training_data(policy_details)
 list_to_csv(training_data_results, ["contract_num",
                                     "starting_account_to_stock_ratio",
                                     "years_to_maturity",
