@@ -21,17 +21,17 @@ def stochastic_factor(mu, sigma):
 # using policyholders makes the shortcut model nontrivial; we can't do a high-dimensional lattice of all possible inputs and interpolate
 # curse of dimensionality: our proxy data science model may need to interpolate between sparse, non-symmetric training model points
 # if we just had mu-sigma-strike, create lattice of training data & interpolate between 8 neighbors' Y in 3-d lattice
-def generate_contracts(num_of_accounts):
+def generate_contracts(num_of_accounts=100):
     block_of_contracts = []
     for contract_num in range(num_of_accounts):
         # Note: our model will not leverage the previous valuations period's known valuation for a given policy, which could be beneficial
-        # Note: this is not a risk-neutral model approach to option valuation
+        # Note: this is not a risk-neutral approach to option valuation
 
         # this can range from 0 to infinity
         account_to_stock_ratio = np.round(math.exp(0.05 + 0.2*np.random.normal()), 4)
         # years to maturity; account balance guarantee date; option date
         time_to_maturity = random.randint(1, 20)
-        # this is the monthly roll-up rate on the account value
+        # this is the monthly roll-up rate on the initial account value
         crediting_rate = random.choice([0.003, 0.005, 0.007, 0.009])
         # monthly discount_rate
         discount_rate = random.choice([0.002, 0.004, 0.006, 0.008, 0.01])
@@ -48,9 +48,9 @@ def stochastic_runs(num_sims, mu, sigma, account_to_stock_ratio, time_to_maturit
     num_periods = 12*time_to_maturity
 
     for stochastic_run_idx in range(num_sims):
-        stock_value = 1  # assume all paths start with a value of 1
+        stock_value = 100  # assume all paths start with a value of 100
         temp_run_stock = [stock_value]
-        account_value = account_to_stock_ratio  # this ratio will change during the projection so we change the variable name
+        account_value = account_to_stock_ratio*stock_value  # this ratio will change during the projection so we change the variable name
         temp_run_account = [account_value]
 
         for time_period in range(num_periods-1):
@@ -58,6 +58,8 @@ def stochastic_runs(num_sims, mu, sigma, account_to_stock_ratio, time_to_maturit
             stock_value *= stochastic_mult
             temp_run_stock.append(stock_value)
 
+            # we could add some policy features such as account value bump-ups to make it more exotic option to value
+            # right now this could use a closed-form solution like the Black-Scholes formula (in a risk-neutral framework)
             account_value *= math.exp(crediting_rate)
             temp_run_account.append(account_value)
 
@@ -68,9 +70,9 @@ def stochastic_runs(num_sims, mu, sigma, account_to_stock_ratio, time_to_maturit
     undiscounted_option_value = sum(payouts)/num_sims
     discount_factor = 1/math.exp(discount_rate*num_periods)
     option_val = undiscounted_option_value*discount_factor
-    print("un-discounted option payout value:", undiscounted_option_value)
+    print("estimated un-discounted payout value:", undiscounted_option_value)
     print("discount factor", discount_factor)
-    print("time 0 option val", option_val)
+    print("PV of option val", option_val)
 
     return np.round(option_val, 4)  # df
 
@@ -120,8 +122,7 @@ def list_to_csv(lists, headers):
         print("stochastic_training_data.csv file written!")
 
 
-num_of_contracts = 2
-policies = generate_contracts(num_of_contracts)
+policies = generate_contracts()
 global_start = time.time()
 training_data_results = create_training_data(policies)
 list_to_csv(training_data_results, ["contract_num",
