@@ -1,0 +1,8 @@
+Record Count: 100
+Trained XGBoost model predicts 68501.53 times faster than 10,000-path stochastic model!
+Omitting print times, the speed-up factor estimate:  68499.15
+#### next run ####
+Record Count: 5000
+Trained XGBoost model predicts 3002396.23 times faster than 10,000-path stochastic model!
+Omitting print times, the speed-up factor estimate:  3002351.47
+#### next run ####

@@ -96,9 +96,9 @@ def stochastic_runs(num_sims, mu, sigma, account_to_stock_ratio, time_to_maturit
     undiscounted_option_value = sum(payouts)/num_sims
     discount_factor = 1/math.exp(discount_rate*num_periods)
     option_val = undiscounted_option_value*discount_factor
-    print("estimated un-discounted payout value:", undiscounted_option_value)
-    print("discount factor", discount_factor)
-    print("PV of option val", option_val)
+    # print("estimated un-discounted payout value:", undiscounted_option_value)
+    # print("discount factor", discount_factor)
+    # print("PV of option val", option_val)
 
     return np.round(option_val, 4)
 
@@ -118,6 +118,10 @@ def create_training_data(block_of_contracts):
 
     training_data = []
 
+    # for tracking average time
+    running_avg_time = 0
+    running_avg_count = 0
+
     for policy_params in block_of_contracts:
         # stock market is defined by an average period drift mu of one stock, and a volatility parameterized by sigma
         for mu in mus:
@@ -132,6 +136,8 @@ def create_training_data(block_of_contracts):
                 print(contract_num, account_to_stock_ratio, time_to_maturity, crediting_rate, discount_rate, mu, sigma)
                 print("estimated option value:", option_value)
                 print(f"10,000-path, {time_to_maturity}-year, monthly, stochastic projection time (seconds): {end-start}")
+                running_avg_time, running_avg_count = update_avg(end-start, running_avg_time, running_avg_count)
+                print("running avg time:", running_avg_time)
                 print()
                 training_data.append([contract_num,
                                       account_to_stock_ratio,
@@ -142,7 +148,13 @@ def create_training_data(block_of_contracts):
                                       sigma,
                                       option_value])
 
-    return training_data
+    return training_data, running_avg_time
+
+
+def update_avg(new_value, running_avg=0, running_count=0):
+    running_count += 1
+    running_avg = running_avg + (new_value - running_avg)/running_count
+    return running_avg, running_count
 
 
 def list_to_csv(lists, headers):
@@ -156,7 +168,7 @@ def list_to_csv(lists, headers):
 if generate_data_flag:
     policy_details = generate_contracts()
     global_start = time.time()
-    training_data_results = create_training_data(policy_details)
+    training_data_results, running_avg_time = create_training_data(policy_details)
     list_to_csv(training_data_results, ["contract_num",
                                         "starting_account_to_stock_ratio",
                                         "years_to_maturity",
@@ -204,7 +216,10 @@ print()
 print("XGBoost Regression model details:")
 print(xgbr)
 
-# we don't do any data clean-up or normalization, but it didn't seem to affect the model accuracy
+# we don't do any data clean-up or normalization and the model seems to do just fine
+# decision trees (or ensembles of decision trees like XGBoost) don't need scaling... but could it help on the target y?
+# https://github.com/dmlc/xgboost/issues/357
+# https://datascience.stackexchange.com/questions/60950/is-it-necessary-to-normalize-data-for-xgboost
 print()
 print("fit model...")
 xgbr.fit(X_train, y_train)
@@ -228,19 +243,25 @@ print(f"XGBoost fitted model run time for {len(X_test)} option contracts (second
 print("the average time to do a 10,000 path stochastic run valuation on one contract was several seconds")
 
 if generate_data_flag:
-    stochastic_time = (global_end-global_start)/len(policy_details)/50  # each policy has 50 (mu, sigma) stochastic run pairs
+    stochastic_time = ((global_end-global_start)/len(policy_details))/50  # each policy has 50 (mu, sigma) stochastic run pairs
     xgboost_time = (ml_end-ml_start)/len(X_test)
     speed_up_factor = stochastic_time/xgboost_time
 
-    with open("time_speed_up.txt", "a") as f:
-        print(f"A trained XGBoost model predicts {speed_up_factor} times faster than the 10,000-projection stochastic model!", file=f)
+    with open("time_speed_up_history.txt", "a") as f:
+        print("Record Count:", len(training_data_results), file=f)
+        print(f"Trained XGBoost model predicts {np.round(speed_up_factor, 2)} times faster than 10,000-path stochastic model!", file=f)
+        print(f"Omitting print times, the speed-up factor estimate: ", np.round(running_avg_time/xgboost_time, 2), file=f)
+        print("#### next run ####", file=f)
 
 # get some metrics
 print()
-print("accuracy metrics on XGBoost Regression model:")
+print("add accuracy metrics on XGBoost Regression model to text file history...")
 mse = mean_squared_error(y_test, y_pred)
-print("MSE: %0.2f" % mse)
-print("RMSE: %0.2f" % (mse**(1/2)))
+with open("test_accuracy_history.txt", "a") as f:
+    print("Record Count:", len(training_data_results), file=f)
+    print("Test set MSE: %0.2f" % mse, file=f)
+    print("Test set RMSE: %0.2f" % (mse**(1/2)), file=f)
+    print("#### next run ####", file=f)
 
 # compare the models
 print("test set: prediction vs estimated ground truth:")
@@ -253,9 +274,9 @@ df2.to_csv("test_set_XGBoost_predictions_vs_stochastic_truths.csv", index=False)
 print()
 print(".png written to visualize XGBoost prediction vs. stochastic (non-converged, estimated) ground truth")
 x_axis = range(len(y_test))
-plt.plot(x_axis, y_pred, label="ML model prediction")
-plt.plot(x_axis, y_test, label="Estimated ground truth")
-plt.title("Stochastic Shortcut Accuracy Comparison")
+plt.bar(x_axis, y_pred, alpha=0.5, label="ML model prediction")
+plt.bar(x_axis, y_test, alpha=0.5, label="Estimated ground truth")
+plt.title("Stochastic Shortcut Accuracy w/ XGBoost (test set)")
 plt.legend()
 plt.savefig('stochastic_shortcut_accuracy.png')
 plt.show()

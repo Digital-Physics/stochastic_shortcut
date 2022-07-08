@@ -1,0 +1,9 @@
+
+Record Count: 100
+Test set MSE: 1.61
+Test set RMSE: 1.27
+#### next run ####
+Record Count: 5000
+Test set MSE: 13.15
+Test set RMSE: 3.63
+#### next run ####
