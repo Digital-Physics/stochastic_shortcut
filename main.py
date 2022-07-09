@@ -7,12 +7,12 @@ import pandas as pd
 from sklearn.model_selection import train_test_split, cross_val_score
 from sklearn.metrics import mean_squared_error
 import matplotlib.pyplot as plt
-from xgboost import XGBRegressor
+from xgboost import XGBRegressor, plot_tree
 
 # if you already have a .csv of training data or
 # if you want to skip the computationally expensive step of generating training data and jump to the ML fitting step, set flag to False
 # generate_data_flag = False
-generate_data_flag = True
+generate_data_flag = False
 
 
 # we will model a Guaranteed Minimum Accumulation Benefit type of contract
@@ -231,6 +231,16 @@ cv_scores = cross_val_score(xgbr, X_train, y_train, cv=10)
 print("C-V training scores:", cv_scores)
 print("Cross-validation average:", cv_scores.mean())
 
+# plot some of the xgboost trees
+# n_estimators = 100
+plot_n_trees = 3
+for i in range(1, plot_n_trees+1):
+    plot_tree(xgbr, num_trees=i)
+    fig = plt.gcf()
+    fig.set_size_inches(120, 60)
+    plt.savefig(f"decision_tree_{i}_of_100.png")
+    plt.close()
+
 # predict results
 print()
 print("Predict results on test data and note the time needed...")
@@ -258,7 +268,7 @@ print()
 print("add accuracy metrics on XGBoost Regression model to text file history...")
 mse = mean_squared_error(y_test, y_pred)
 with open("test_accuracy_history.txt", "a") as f:
-    print("Record Count:", len(training_data_results), file=f)
+    print("Record Count:", len(df), file=f)
     print("Test set MSE: %0.2f" % mse, file=f)
     print("Test set RMSE: %0.2f" % (mse**(1/2)), file=f)
     print("#### next run ####", file=f)
@@ -279,5 +289,5 @@ plt.bar(x_axis, y_test, alpha=0.5, label="Estimated ground truth")
 plt.title("Stochastic Shortcut Accuracy w/ XGBoost (test set)")
 plt.legend()
 plt.savefig('stochastic_shortcut_accuracy.png')
-plt.show()
+# plt.show()
 

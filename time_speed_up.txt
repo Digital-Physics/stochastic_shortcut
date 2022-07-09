@@ -1,4 +1,0 @@
-A trained XGBoost model predicts 59653.7209011264 times faster than the stochastic model!
-A trained XGBoost model predicts 88927.02814047727 times faster than the 10,000-projection stochastic model!
-A trained XGBoost model predicts 55311.38556282427 times faster than the 10,000-projection stochastic model!
-A trained XGBoost model predicts 2631137.3276001243 times faster than the 10,000-projection stochastic model!
