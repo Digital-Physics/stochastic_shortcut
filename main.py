@@ -288,6 +288,8 @@ plt.bar(x_axis, y_pred, alpha=0.5, label="ML model prediction")
 plt.bar(x_axis, y_test, alpha=0.5, label="Estimated ground truth")
 plt.title("Stochastic Shortcut Accuracy w/ XGBoost (test set)")
 plt.legend()
+fig = plt.gcf()
+fig.set_size_inches(60, 30)
 plt.savefig('stochastic_shortcut_accuracy.png')
 # plt.show()
 
