@@ -233,12 +233,12 @@ print("Cross-validation average:", cv_scores.mean())
 
 # plot some of the xgboost trees
 # n_estimators = 100
-plot_n_trees = 3
-for i in range(1, plot_n_trees+1):
+plot_n_trees = 4
+for i in list(range(plot_n_trees)) + [99]:
     plot_tree(xgbr, num_trees=i)
     fig = plt.gcf()
     fig.set_size_inches(120, 60)
-    plt.savefig(f"decision_tree_{i}_of_100.png")
+    plt.savefig(f"decision_tree_idx_{i}_of_99.png")
     plt.close()
 
 # predict results
