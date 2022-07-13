@@ -302,7 +302,7 @@ plt.savefig('stochastic_shortcut_accuracy.png')
 block_w_new_assumptions = shock_assumptions.shock_block(X_test, [None, None, None, 0.002, None, None])
 shock_results = xgbr.predict(block_w_new_assumptions)
 
-df3 = X_test.copy(True)
+df3 = block_w_new_assumptions.copy(True)
 df3["prediction"] = y_pred
 df3["shocked_prediction"] = shock_results
 df3['change_ratio'] = df3["shocked_prediction"]/df3["prediction"]

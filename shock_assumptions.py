@@ -12,10 +12,11 @@
 # example:
 # shock amount vector to see effect in valuation interest rate increase: [None, None, None, 0.002, None, None]
 def shock_block(df_block_of_contracts, shock_amounts):
+    df_new = df_block_of_contracts.copy(True)
     for i in range(len(df_block_of_contracts)):
         for col_idx, shock in enumerate(shock_amounts):
             if shock is not None:
-                df_block_of_contracts.iloc[i, col_idx] += shock
+                df_new.iloc[i, col_idx] += shock
 
-    return df_block_of_contracts
+    return df_new
 
