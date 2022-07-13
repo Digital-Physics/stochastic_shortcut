@@ -8,6 +8,7 @@ from sklearn.model_selection import train_test_split, cross_val_score
 from sklearn.metrics import mean_squared_error
 import matplotlib.pyplot as plt
 from xgboost import XGBRegressor, plot_tree
+import shock_assumptions
 
 # if you already have a .csv of training data or
 # if you want to skip the computationally expensive step of generating training data and jump to the ML fitting step, set flag to False
@@ -293,3 +294,22 @@ fig.set_size_inches(60, 30)
 plt.savefig('stochastic_shortcut_accuracy.png')
 # plt.show()
 
+# "what if?" analysis below
+
+# look at the effect of an increase valuation interest rate on the current block
+# 6 input assumptions:
+# account_to_stock_ratio, years_to_mat, monthly_account_crediting_rate, monthly_val_discount_rate, mu_stock_drift, sigma_stock_vol
+block_w_new_assumptions = shock_assumptions.shock_block(X_test, [None, None, None, 0.002, None, None])
+shock_results = xgbr.predict(block_w_new_assumptions)
+
+df3 = X_test.copy(True)
+df3["prediction"] = y_pred
+df3["shocked_prediction"] = shock_results
+df3['change_ratio'] = df3["shocked_prediction"]/df3["prediction"]
+print(df3)
+df3.to_csv("interest_rate_shock_example.csv", index=False)
+
+print("look at the effects of interest rate changes that resulted in a new assumptions that fell outside the training range!")
+print("they didn't move!")
+print("this shows that our (ensemble boosted) tree model doesn't handle extrapolation that well.")
+print("we should run these assumptions through the stochastic valuation model to see what the actual ground truths are...")
